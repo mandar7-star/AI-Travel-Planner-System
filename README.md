@@ -1,8 +1,8 @@
 # ✈️ AI Travel Planner System
 
-An enterprise-grade, multi-agent AI Travel Planner System built on **LangGraph**, **FastMCP (Model Context Protocol)**, **Qdrant Vector DB (Two-Stage RAG)**, **PostgreSQL Checkpointing**, and **Groq Fast LLM Inference**.
+An Enterprise-grade, Multi-Agent AI Travel Planner System built on **LangGraph**, **FastMCP (Model Context Protocol)**, **Qdrant Vector DB (Two-Stage RAG)**, **PostgreSQL Checkpointing**, and **Groq Fast LLM Inference**.
 
-Delivers complete, grounded, real-time travel plans with live web search, weather, flights, hotels, and INR budget breakdowns from a single natural language query.
+Delivers complete, grounded, real-time Travel Plans with live Web search, Weather, Flights, Hotels, and INR Budget breakdowns from a single natural language query.
 
 ---
 
