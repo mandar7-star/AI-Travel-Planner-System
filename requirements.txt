@@ -1,15 +1,36 @@
-langgraph
-langchain
-langchain-groq
-langchain-community
-langchain-core
-langchain-mcp-adapters
-psycopg[binary]
-psycopg_pool
-langgraph-checkpoint-postgres
-python-dotenv
-requests
-streamlit
-tavily-python
-pinecone
-mcp
+# --- Orchestration & Agents ---
+langgraph>=1.0.0,<2.0.0
+langchain>=1.0.0,<2.0.0
+langchain-core>=1.0.0,<2.0.0
+langchain-groq>=1.0.0,<2.0.0
+langchain-community>=0.3.0,<0.5.0
+langgraph-checkpoint-postgres>=3.0.0,<4.0.0
+
+# --- Tool Protocol (MCP) ---
+# IMPORTANT: mcp 2.x has breaking API changes. Do not remove the upper bound.
+mcp>=1.2.0,<2.0.0
+
+# --- Vector Store & RAG ---
+qdrant-client>=1.9.0,<2.0.0
+fastembed>=0.4.0,<1.0.0
+flashrank>=0.2.0,<1.0.0
+
+# --- LLM Provider ---
+groq>=0.30.0,<1.0.0
+
+# --- Database ---
+psycopg[binary]>=3.1.0,<4.0.0
+psycopg_pool>=3.2.0,<4.0.0
+
+# --- Web Search ---
+tavily-python>=0.5.0,<1.0.0
+
+# --- Web Framework ---
+streamlit>=1.35.0,<2.0.0
+
+# --- Utilities (stable) ---
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# --- Export / Rendering ---
+markdown-pdf>=1.1.0,<2.0.0

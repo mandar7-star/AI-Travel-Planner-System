@@ -1,264 +1,202 @@
-# ✈️ AI Travel Planning System
+# ✈️ AI Travel Planner System
 
-An advanced AI-powered **Travel Planning System** built on a **6-Agent LangGraph Pipeline** that delivers complete, real-time travel plans from a single natural language query.
+An enterprise-grade, multi-agent AI Travel Planner System built on **LangGraph**, **FastMCP (Model Context Protocol)**, **Qdrant Vector DB (Two-Stage RAG)**, **PostgreSQL Checkpointing**, and **Groq Fast LLM Inference**.
 
-The system integrates **Tavily MCP** for real-time web search, **Pinecone RAG** for verified destination knowledge retrieval, **OpenWeatherMap** for live weather data, and **Groq LLaMA 3.3 70B** for high-speed reasoning — all orchestrated by **LangGraph** in a sequential multi-agent pipeline.
-
-Each agent has a single focused responsibility and passes enriched context to the next stage. The result is a grounded, accurate **Travel Itinerary** built entirely from live data — not LLM memory alone. The system also maintains persistent session memory using **Supabase Cloud PostgreSQL** via LangGraph checkpointing, so context is preserved across queries.
+Delivers complete, grounded, real-time travel plans with live web search, weather, flights, hotels, and INR budget breakdowns from a single natural language query.
 
 ---
 
-## 🚀 Key Highlights
+## 🤖 Agent Details & Architecture
 
-- 🤖 **Multi-Agent Orchestration** using **LangGraph**
-- 🌐 **Real-Time Web Search** via **Tavily Remote MCP Server**
-- 🔍 **Destination Knowledge Retrieval** via **Pinecone RAG**
-- 🧠 **High-Speed Inference** using **Groq LLaMA 3.3 70B**
-- 🌤️ **Live Weather & Forecast** via **OpenWeatherMap API**
-- 🚆 **Smart Travel Mode Detection** — trains and buses for short trips, flights for international
-- 💰 **Complete Budget Breakdown in INR** across budget, mid-range and luxury options
-- 🐘 **Persistent Session Memory** via **Supabase Cloud PostgreSQL**
-- 🖥️ **Interactive Web UI** built with **Streamlit**
+The system utilizes a **LangGraph Supervisor Multi-Agent Architecture** where specialized agents collaborate dynamically:
 
----
-
-## ⭐ Key Features
-
-- **Real-Time Travel Intelligence** — integrates live APIs for flights, hotels and weather to provide up-to-date recommendations with source links
-- **RAG-Powered Research** — retrieves verified destination knowledge from a **Pinecone** vector database instead of relying on LLM training data
-- **MCP Integration** — connects to **Tavily's Remote MCP Server** for standardized real-time web search across Flight and Hotel agents
-- **Smart Transport Detection** — automatically identifies trip type and suggests the most suitable transport: trains and buses for short domestic trips, flights for long-distance and international
-- **Context-Aware Planning** — maintains session history using **Supabase PostgreSQL** so the system remembers previous queries
-- **INR Budget Planning** — dedicated Budget Agent calculates complete trip costs in Indian Rupees across three scenarios
-- **Scalable Architecture** — modular agent design makes it easy to add new agents like Visa Agent, Activity Agent or Currency Agent
+| Agent | Core Role | Tools / Integration | Primary Output |
+|---|---|---|---|
+| 👑 **Supervisor Agent** | Master Orchestrator | Groq LLM Routing | Analyzes query, extracts destination, detects trip type (`INTERNATIONAL`, `DOMESTIC_SHORT`, `DOMESTIC_LONG`), and dispatches parallel specialist execution. |
+| 📚 **Research Agent** | Destination & Culture Expert | Two-Stage RAG (Embedded Qdrant + FlashRank Cross-Encoder) | Visa/entry rules for Indian citizens, currency & payments, safety guidelines, and local cultural etiquette. |
+| 🛫 **Flight & Transit Agent** | Transit Specialist | FastMCP (`tavily_search`) | Live flight routes, IRCTC train options, intercity buses/cabs, and estimated fares in INR (₹). |
+| 🏨 **Hotel Agent** | Accommodation Advisor | FastMCP (`tavily_search`) | Verified hotel options across budget, mid-range, and luxury tiers, plus neighborhood vibe and stay recommendations. |
+| 🌤️ **Weather Agent** | Climate & Packing Advisor | FastMCP (`get_current_weather`, `get_forecast`) | Real-time weather, 5-period forecast, seasonal advisories, and tailored packing checklists. |
+| 💰 **Budget Agent** | Financial Calculator | Groq LLM Synthesis | Consolidated INR (₹) cost breakdown (transit, stays, daily food, activities, buffer) for Backpacker, Mid-range, and Luxury tiers. |
+| 🗓️ **Itinerary Agent** | Master Synthesizer | Groq LLM Synthesis | Cohesive day-by-day master travel plan with morning, afternoon, and evening schedules, food spots, and practical checklists. |
 
 ---
 
-## 🧠 System Architecture
+## 🔑 API Keys & Prerequisites
 
-```
-User Query
-    ↓
-Research Agent  →  Pinecone RAG
-    ↓
-Travel Agent    →  Tavily MCP
-    ↓
-Hotel Agent     →  Tavily MCP
-    ↓
-Weather Agent   →  OpenWeatherMap API
-    ↓
-Budget Agent    →  Groq LLaMA 3.3 70B
-    ↓
-Itinerary Agent →  Groq LLaMA 3.3 70B
-```
+To run the system, you will need free API keys from the following services:
 
-Each agent receives the full output of all previous agents — building a richer, more accurate plan at every step.
+| Service | Link | Purpose | Environment Variable |
+|---|---|---|---|
+| **Groq** | [https://console.groq.com](https://console.groq.com) | Ultra-fast LLM inference (`openai/gpt-oss-120b` & `openai/gpt-oss-20b`) | `GROQ_API_KEY` |
+| **Tavily** | [https://www.tavily.com](https://www.tavily.com) | Live web search for flight fares, train routes, and hotels | `TAVILY_API_KEY` |
+| **OpenWeatherMap** | [https://openweathermap.org/api](https://openweathermap.org/api) | Real-time weather conditions and forecast data | `OPENWEATHER_API_KEY` |
 
----
-
-## 🔹 Agent Details
-
-### 🔬 Research Agent — Pinecone RAG
-Queries the **Pinecone** vector database to retrieve verified destination knowledge including visa requirements for Indian citizens, best time to visit, local currency and money tips, cultural etiquette, local transportation options and safety guidelines. By grounding the LLM in retrieved facts rather than training data alone, the research brief is specific, accurate and up to date. The LLM synthesizes the retrieved chunks into a clean, structured research brief that feeds all subsequent agents.
+### How to Get Your API Keys:
+1. **Groq**:
+   - Sign up / Log in at [console.groq.com](https://console.groq.com).
+   - Navigate to **API Keys** in the left sidebar.
+   - Click **Create API Key**, copy your key, and assign it to `GROQ_API_KEY`.
+2. **Tavily**:
+   - Register for a free account at [tavily.com](https://www.tavily.com).
+   - Go to your dashboard to copy your API key (1,000 free searches/month).
+   - Assign it to `TAVILY_API_KEY`.
+3. **OpenWeatherMap**:
+   - Create a free account at [openweathermap.org/api](https://openweathermap.org/api).
+   - Go to your account profile → **My API Keys**.
+   - Copy your default key (or generate a new one) and assign it to `OPENWEATHER_API_KEY`. *(Note: New keys activate within 10-15 minutes).*
 
 ---
 
-### 🚆 Travel Agent — Tavily MCP
-Automatically detects the trip type before searching. Short-distance domestic trips under 500km like Pune to Nashik get **trains, buses and cabs only** — the LLM is explicitly instructed not to suggest flights. Long-distance domestic trips get both trains and flights with a value-for-money comparison. International trips get airlines, flight durations from major Indian cities and fare ranges in INR. All results are sourced from **Tavily MCP** with real booking platform links.
+## 🛠️ Complete Setup Guide
 
----
+> **Python Requirement**: **Python 3.10+** (Python 3.10, 3.11, or 3.12 recommended).
 
-### 🏨 Hotel Agent — Tavily MCP
-Searches **Tavily MCP** for current hotel options at the destination across budget, mid-range and luxury categories. Returns hotel names, approximate prices per night in INR, best areas to stay and direct booking links from platforms like MakeMyTrip, Booking.com and Hotels.com. The LLM summarizes and ranks the options based on value and location.
-
----
-
-### 🌤️ Weather Agent — OpenWeatherMap API
-Fetches live current weather conditions and a 5-period short-term forecast directly from the **OpenWeatherMap API**. Captures temperature, feels-like temperature, humidity, wind speed and weather conditions. The LLM interprets the data and adds practical travel recommendations — clothing and packing tips, weather-appropriate activity suggestions and any weather warnings the traveler should be aware of.
-
----
-
-### 💰 Budget Agent — Groq LLaMA 3.3 70B
-Takes the travel and hotel information from previous agents and generates a complete trip cost breakdown in **INR**. Covers flights or ground transport, accommodation per night and total, daily food budget across budget and splurge options, local transportation, activities and sightseeing, shopping and miscellaneous, and travel insurance. Provides three total trip cost scenarios — budget, mid-range and luxury — with practical money-saving tips.
-
----
-
-### 🗓️ Itinerary Agent — Groq LLaMA 3.3 70B
-Acts as the final synthesis layer. Takes all outputs from the Research, Travel, Hotel, Weather and Budget agents and generates a comprehensive **day-by-day Travel Itinerary** with specific timings, hotel and transport recommendations, must-try local foods for each day, daily budget estimates in INR, visa and cultural reminders, and a list of useful apps and emergency contacts for the destination.
-
----
-
-## 🏗️ Project Structure
-
-```
-AI_Travel_Planning_System/
-├── main.py                  # LangGraph pipeline — 6 agents
-├── frontend.py              # Streamlit web UI
-├── tools.py                 # Tavily MCP, Pinecone RAG, Weather tools
-├── ingest_knowledge.py      # Run once to populate Pinecone
-├── requirements.txt
-├── .env.example
-└── .gitignore
-```
-
----
-
-## ⚙️ Tech Stack
-
-| Category | Technology |
-|---|---|
-| LLM | Groq — LLaMA 3.3 70B Versatile |
-| Agent Orchestration | LangGraph |
-| Framework | LangChain |
-| MCP | Tavily Remote MCP Server |
-| RAG | Pinecone Vector Database |
-| Web Search | Tavily Search API |
-| Weather | OpenWeatherMap API |
-| Database | Supabase (Cloud PostgreSQL) |
-| Frontend | Streamlit |
-
----
-
-## 🔑 API Keys Required
-
-| Service | Link |
-|---|---|
-| Groq | https://console.groq.com |
-| Tavily | https://www.tavily.com |
-| OpenWeatherMap | https://openweathermap.org/api |
-| Pinecone | https://pinecone.io |
-| Supabase | https://supabase.com |
-
----
-
-## 🔐 Environment Variables
-
-Create a `.env` file in the project root (see `.env.example`):
-
-```env
-GROQ_API_KEY=your_groq_api_key
-TAVILY_API_KEY=your_tavily_api_key
-OPENWEATHER_API_KEY=your_openweathermap_api_key
-PINECONE_API_KEY=your_pinecone_api_key
-DATABASE_URL=postgresql://username:password@host:5432/db_name
-```
-
-> ⚠️ Never commit your `.env` file. It is already in `.gitignore`.
-
----
-
-## 🧪 Installation & Setup
-
-### 1. Clone the repository
-
+### 1. Clone the Repository & Create Virtual Environment
 ```bash
-git clone https://github.com/mandar7-star/AI-Travel-Planning-System.git
-cd AI-Travel-Planning-System
-```
+git clone https://github.com/mandar7-star/AI-Travel-Planner-System.git
+cd AI-Travel-Planner-System
 
-### 2. Create and activate virtual environment
-
-```bash
+# Create virtual environment
 python -m venv venv
-venv\Scripts\activate        # Windows
-source venv/bin/activate     # macOS / Linux
+
+# Windows (PowerShell)
+.\venv\Scripts\Activate.ps1
+
+# macOS / Linux
+source venv/bin/activate
 ```
 
-### 3. Install dependencies
-
+### 2. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Set up Supabase
+### 3. Database Setup & Environment Variables
+1. **Create Database in PostgreSQL**:
+   - Open your PostgreSQL app (e.g., pgAdmin, Postgres.app, DBeaver, or psql).
+   - Create a new database (e.g., `travel_planner`):
+     ```sql
+     CREATE DATABASE travel_planner;
+     ```
+2. **Configure `.env`**:
+   - Create a `.env` file in the project root (see `.env.example`).
+   - Copy your database connection URL and paste it as `DATABASE_URL`:
+     ```env
+     GROQ_API_KEY=your_groq_api_key
+     TAVILY_API_KEY=your_tavily_api_key
+     OPENWEATHER_API_KEY=your_openweathermap_api_key
+     DATABASE_URL=postgresql://postgres:your_password@localhost:5432/travel_planner
+     ```
+     *(Format: `postgresql://<username>:<password>@<host>:<port>/<database_name>`)*
+   - *(Note: If PostgreSQL is offline or unconfigured, the system automatically falls back to in-memory `MemorySaver`).*
 
-1. Create a free account at https://supabase.com
-2. Create a new project
-3. Go to **Connect → Session pooler** and copy the URI
-4. Add it to your `.env` as `DATABASE_URL`
-
-### 5. Set up Pinecone and populate knowledge base
-
-1. Create a free account at https://pinecone.io
-2. Create an index named `travel-knowledge` with model `llama-text-embed-v2`
-3. Add your API key to `.env` as `PINECONE_API_KEY`
-4. Run once to populate the knowledge base:
-
+### 4. Knowledge Ingestion
+Ingest destination knowledge vectors into embedded Qdrant:
 ```bash
 python ingest_knowledge.py
 ```
 
----
-
-## ▶️ Run the Application
-
+### 5. Launch the Web Application
 ```bash
 streamlit run frontend.py
 ```
 
 ---
 
-## ☁️ Cloud Deployment (Streamlit Cloud)
+## 🚀 Key Highlights
 
-1. Push your code to GitHub
-2. Go to https://share.streamlit.io → **Create app**
-3. Set **Main file path** to `frontend.py`
-4. Go to **Advanced settings → Secrets** and paste:
+- 🤖 **LangGraph Supervisor Graph** — Dynamic supervisor with parallel fan-out (`research`, `flight`, `hotel`, `weather`) and fan-in (`budget`, `itinerary`).
+- 🔌 **FastMCP (Model Context Protocol)** — Official MCP server running over `stdio` for standardized, decoupled tool discovery and execution.
+- 🎯 **Two-Stage RAG Pipeline** — Qdrant vector retrieval (Bi-Encoder Recall@10) + FlashRank Cross-Encoder reranking (Precision@3).
+- 🐘 **PostgreSQL Checkpointing** — Full state persistence, session continuity, and time-travel debugging via native PostgreSQL on port 5432 with `psycopg_pool` (with automatic graceful fallback to `MemorySaver`).
+- ⚡ **High-Speed Groq Inference** — Fail-fast `openai/gpt-oss-120b` with instant automated fallback to `openai/gpt-oss-20b` on rate limits.
+- 🌤️ **Live Weather & Forecast** — OpenWeatherMap API integration with clothing, packing, and activity advisories.
+- 💰 **INR Budget Breakdown** — Comprehensive trip cost estimates across Budget, Mid-Range, and Luxury tiers.
+- 🖥️ **Interactive Web UI** — Modern Streamlit UI with live agent execution timeline, MCP status chips, and session management.
 
-```toml
-GROQ_API_KEY = "your_key"
-TAVILY_API_KEY = "your_key"
-OPENWEATHER_API_KEY = "your_key"
-PINECONE_API_KEY = "your_key"
-DATABASE_URL = "your_supabase_pooler_url"
+---
+
+## 🧠 System Architecture
+
+```
+                      ┌──────────────────┐
+                      │    User Query    │
+                      └─────────┬────────┘
+                                │
+                      ┌─────────▼────────┐
+                      │    Supervisor    │
+                      └─────────┬────────┘
+        ┌───────────────────────┼───────────────────────┐
+        │                       │                       │
+ ┌──────▼──────┐         ┌──────▼──────┐         ┌──────▼──────┐
+ │  Research   │         │Flight/Travel│         │    Hotel    │
+ │    Agent    │         │    Agent    │         │    Agent    │
+ └──────┬──────┘         └──────┬──────┘         └──────┬──────┘
+        │ (Embedded Qdrant)     │ (FastMCP)             │ (FastMCP)
+        │                       │                       │
+        └───────────────────────┼───────────────────────┘
+                                │
+                         ┌──────▼──────┐
+                         │   Weather   │
+                         │    Agent    │
+                         └──────┬──────┘
+                                │ (FastMCP)
+                         ┌──────▼──────┐
+                         │Budget Agent │
+                         └──────┬──────┘
+                                │ (INR Synthesis)
+                         ┌──────▼──────┐
+                         │  Itinerary  │
+                         │    Agent    │
+                         └──────┬──────┘
+                                │
+                         ┌──────▼──────┐
+                         │PostgreSQL DB│ (Native Checkpointing on 5432)
+                         └─────────────┘
 ```
 
-5. Click **Deploy**
+---
+
+## ⚙️ Tech Stack
+
+| Component | Technology | Purpose |
+|---|---|---|
+| **Orchestration** | LangGraph & LangChain Core | Supervisor state machine with parallel execution & state reducers |
+| **Tool Protocol** | FastMCP (`mcp_server.py`) | Model Context Protocol over `stdio` with JSON-RPC 2.0 |
+| **Vector DB** | Qdrant (Embedded `./qdrant_data`) | Embedded vector store with payload filtering on destination |
+| **Embeddings** | FastEmbed (`bge-small-en-v1.5`) | Local, lightweight 384-dimensional dense embeddings |
+| **Reranker** | FlashRank (`ms-marco-TinyBERT-L-2-v2`) | Cross-encoder reranking for maximum Precision@3 |
+| **LLM Inference** | Groq (`openai/gpt-oss-120b` / `20b`) | Ultra-fast token generation with fail-fast fallback |
+| **State Persistence** | PostgreSQL + `psycopg_pool` | Production checkpointing on native port 5432 (with MemorySaver fallback) |
+| **Search & Weather** | Tavily Search + OpenWeatherMap | Real-time live web search and forecast data |
+| **Frontend** | Streamlit | Real-time streaming UI with MCP badges and expandable agent tabs |
+
+---
+
+## 📸 Screenshots
+
+The following screenshots demonstrating the system UI, agent execution pipeline, and exported itinerary can be found in the [`screenshots/`](screenshots/) folder:
+
+| File Name | Description | Preview |
+|---|---|---|
+| **`1_main_ui.png`** | **Interactive Streamlit Web UI** — Query input, destination configuration, and active search status | ![Main UI](screenshots/1_main_ui.png) |
+| **`2_agents_pipeline.png`** | **Agent Execution Pipeline** — Supervisor graph orchestration, parallel fan-out agents, and real-time execution timeline | ![Agents Pipeline](screenshots/2_agents_pipeline.png) |
+| **`3_download.png`** | **Trip Plan & Export** — Synthesized day-wise itinerary, weather forecast, INR budget breakdown, and PDF/Markdown download options | ![Download & Export](screenshots/3_download.png) |
 
 ---
 
 ## 💡 Example Queries
 
-```
-Plan a complete 7-day Japan trip under ₹2 lakhs including flights, hotels and sightseeing
-```
-```
-5-day Paris trip for a couple with hotel recommendations
-```
-```
-Pune to Nashik 2-day trip
-```
-```
-Dubai weekend getaway from Mumbai
-```
-
----
-
-## 🖥️ UI Preview
-
-### 🏠 Homepage
-<img src="screenshots/home.png" width="800"/>
-
-### 🤖 Agent Pipeline Live
-<img src="screenshots/pipeline.png" width="800"/>
-
-### 📊 Final Output
-<img src="screenshots/result.png" width="800"/>
-
----
-
-## 🎯 Use Cases
-
-- Multi-Agent AI System Demonstration
-- Real-Time RAG + MCP Integration Project
-- Portfolio Project for AI/ML Roles
-- Base for Building Production AI Travel Assistants
+- `Plan a 7-day Japan trip for cherry blossom season under ₹2.5 Lakhs`
+- `5-day luxury holiday in Dubai from Mumbai with 5-star hotel options`
+- `Weekend road trip from Pune to Nashik for 2 people with wine tasting`
+- `Budget 4-day trip to Bali for digital nomads with coworking cafe recommendations`
 
 ---
 
 ## 👨‍💻 Author
 
 **Mandar Borhade**
-
-LinkedIn: https://www.linkedin.com/in/mandarborhade
-GitHub: https://github.com/mandar7-star
+- LinkedIn: [mandarborhade](https://www.linkedin.com/in/mandarborhade)
+- GitHub: [mandar7-star](https://github.com/mandar7-star)

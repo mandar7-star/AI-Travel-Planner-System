@@ -1,6 +1,21 @@
+# === Environment Variables (Secrets) ===
 .env
+.env.local
+.env.*.local
+
+# === Generated Data ===
 travel_plans/
+qdrant_data/
+
+# === Python Build Cache ===
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+
+# === Virtual Environments ===
 venv/
 .venv/
+agentic/
+agents/
+env/
+ENV/

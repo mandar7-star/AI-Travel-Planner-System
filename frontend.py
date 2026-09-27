@@ -1,57 +1,374 @@
+"""
+Streamlit Interactive UI for Production Multi-Agent AI Travel Planner System
+Visualizes:
+- Supervisor Master Orchestrator
+- Parallel Fan-Out Specialists (Research, Flights, Hotels, Weather)
+- Synthesis Pipeline (Budget & Itinerary)
+- Real-time Checkpointing & Session Memory via PostgreSQL
+"""
+
 import os
+import re
+import io
 import streamlit as st
 from datetime import datetime
 from langchain_core.messages import HumanMessage
 from main import app
 
-st.set_page_config(page_title="AI Travel Planning System", page_icon="✈️", layout="wide")
+
+@st.cache_data(show_spinner=False)
+def generate_pdf_bytes(markdown_text: str) -> bytes:
+    """Converts a Markdown travel plan into PDF bytes using markdown-pdf (cached)."""
+    from markdown_pdf import MarkdownPdf, Section
+    pdf = MarkdownPdf(toc_level=2)
+    pdf.add_section(Section(markdown_text))
+    buf = io.BytesIO()
+    pdf.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def clean_llm_output(text: str) -> str:
+    """Convert LLM-generated <br> to newlines and strip dangerous HTML injection tags."""
+    if not text:
+        return text
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    dangerous = r"</?(?:script|iframe|object|embed|style|link|meta|form|input)[^>]*>"
+    text = re.sub(dangerous, "", text, flags=re.IGNORECASE)
+    return text
+
+
+def tidy_weather(text: str) -> str:
+    """Normalize weather text: preserve double-newline section breaks, 
+    strip trailing spaces, remove excessive blank lines, and inject markdown hard breaks."""
+    if not text:
+        return text
+    # Collapse 3+ newlines to exactly 2 (paragraph break)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    # Convert single newlines to markdown hard breaks (two trailing spaces)
+    lines = text.split("\n")
+    out = []
+    for i, line in enumerate(lines):
+        stripped = line.rstrip()
+        # If next line is not blank and this line is not blank, add hard break
+        if i < len(lines) - 1 and stripped and lines[i + 1].strip():
+            out.append(stripped + "  ")
+        else:
+            out.append(stripped)
+    return "\n".join(out).strip()
+
+
+
+def strip_markdown_tables(text: str) -> str:
+    """Convert markdown tables to bullet lists."""
+    if not text:
+        return text
+    lines = text.split("\n")
+    out = []
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if line.startswith("|") and line.endswith("|"):
+            if i + 1 < len(lines):
+                sep = lines[i + 1].strip()
+                if set(sep.replace("|", "").replace("-", "").replace(":", "").replace(" ", "")) == set():
+                    headers = [c.strip() for c in line.strip("|").split("|")]
+                    i += 2
+                    while i < len(lines):
+                        row_line = lines[i].strip()
+                        if not (row_line.startswith("|") and row_line.endswith("|")):
+                            break
+                        cells = [c.strip() for c in row_line.strip("|").split("|")]
+                        for h, v in zip(headers, cells):
+                            if v:
+                                out.append(f"**{h}:** {v}")
+                        out.append("")
+                        i += 1
+                    continue
+        out.append(lines[i])
+        i += 1
+    return "\n".join(out)
+
+
+
+st.set_page_config(
+    page_title="AI Travel Planner System — Multi-Agent Supervisor",
+    page_icon="✈️",
+    layout="wide"
+)
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 html, body, .stApp { font-family: 'Inter', sans-serif; background: #FFFFFF; }
-.hero-wrapper { position: relative; border-radius: 20px; overflow: hidden; margin-bottom: 2rem; min-height: 280px; }
-.hero-content { position: relative; z-index: 2; min-height: 280px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2.5rem 2rem; }
-.hero-badge { background: rgba(37,99,235,0.15); border: 1px solid rgba(255,255,255,0.5); color: #ffffff !important; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; padding: 0.3rem 0.9rem; border-radius: 20px; margin-bottom: 0.9rem; display: inline-block; }
-.hero-title { font-size: 2.6rem; font-weight: 700; color: #ffffff; margin: 0 0 0.6rem; line-height: 1.2; text-shadow: 0 2px 20px rgba(0,0,0,0.4); }
-.hero-sub { color: #f0f0f0; font-size: 1rem; max-width: 600px; text-shadow: 0 2px 10px rgba(0,0,0,0.4); }
-.input-label { color: #2563EB; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 0.5rem; }
-div[data-testid="stButton"] > button { background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important; color: #ffffff !important; border: none !important; border-radius: 12px !important; padding: 0.85rem 2.5rem !important; font-size: 1.05rem !important; font-weight: 700 !important; width: 100% !important; box-shadow: 0 4px 14px rgba(37,99,235,0.25) !important; transition: all 0.3s ease !important; }
-div[data-testid="stButton"] > button:hover { box-shadow: 0 6px 20px rgba(37,99,235,0.35) !important; transform: translateY(-2px) !important; }
-.sec-head { display: flex; align-items: center; gap: 0.6rem; margin: 2rem 0 0.75rem; padding-bottom: 0.5rem; border-bottom: 1px solid #E5E5E5; }
-.sec-head span { font-size: 1.15rem; font-weight: 600; color: #111111; }
+
+.hero-wrapper { 
+    position: relative; 
+    border-radius: 20px; 
+    overflow: hidden; 
+    margin-bottom: 2rem; 
+    min-height: 250px; 
+}
+.hero-content { 
+    position: relative; 
+    z-index: 2; 
+    min-height: 250px; 
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
+    justify-content: center; 
+    text-align: center; 
+    padding: 2.2rem 2rem; 
+}
+.hero-badge { 
+    background: rgba(37,99,235,0.25); 
+    border: 1px solid rgba(255,255,255,0.5); 
+    color: #ffffff !important; 
+    font-size: 0.78rem; 
+    font-weight: 700; 
+    letter-spacing: 0.14em; 
+    text-transform: uppercase; 
+    padding: 0.35rem 1rem; 
+    border-radius: 20px; 
+    margin-bottom: 0.8rem; 
+    display: inline-block; 
+}
+.hero-title { 
+    font-size: 2.4rem; 
+    font-weight: 800; 
+    color: #ffffff; 
+    margin: 0 0 0.5rem; 
+    line-height: 1.2; 
+    text-shadow: 0 2px 20px rgba(0,0,0,0.5); 
+}
+.hero-sub { 
+    color: #f1f5f9; 
+    font-size: 0.98rem; 
+    max-width: 650px; 
+    text-shadow: 0 2px 10px rgba(0,0,0,0.5); 
+}
+
+/* Primary Action Button (e.g. Generate My Travel Plan) */
+div[data-testid="stButton"] > button { 
+    background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important; 
+    color: #ffffff !important; 
+    border: none !important; 
+    border-radius: 12px !important; 
+    padding: 0.85rem 2.5rem !important; 
+    font-size: 1.05rem !important; 
+    font-weight: 700 !important; 
+    width: 100% !important; 
+    box-shadow: 0 4px 14px rgba(37,99,235,0.25) !important; 
+    transition: all 0.3s ease !important; 
+}
+div[data-testid="stButton"] > button:hover { 
+    box-shadow: 0 6px 20px rgba(37,99,235,0.35) !important; 
+    transform: translateY(-2px) !important; 
+}
+
+/* Download Section Buttons */
+div[data-testid="stDownloadButton"] {
+    margin: 0 !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+}
+div[data-testid="stDownloadButton"] > button { 
+    background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important; 
+    color: #ffffff !important; 
+    border: none !important; 
+    border-radius: 12px !important; 
+    height: 48px !important;
+    min-height: 48px !important;
+    max-height: 48px !important;
+    box-sizing: border-box !important;
+    padding: 0 1.2rem !important; 
+    font-size: 0.95rem !important; 
+    font-weight: 700 !important; 
+    width: 100% !important; 
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-shadow: 0 4px 14px rgba(37,99,235,0.25) !important; 
+    transition: all 0.3s ease !important; 
+    margin: 0 !important;
+}
+div[data-testid="stDownloadButton"] > button:hover { 
+    box-shadow: 0 6px 20px rgba(37,99,235,0.35) !important; 
+    transform: translateY(-2px) !important; 
+}
+
+div[data-testid="stHorizontalBlock"] {
+    align-items: center !important;
+    display: flex !important;
+}
+
+.save-bar {
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    padding: 0 1.2rem;
+    color: #64748B;
+    font-size: 0.88rem;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    height: 48px;
+    min-height: 48px;
+    max-height: 48px;
+    box-sizing: border-box;
+    margin: 0;
+    line-height: normal;
+}
+.save-bar code {
+    background: #EDF2F7;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.82rem;
+    color: #334155;
+}
+
+.sec-head { 
+    display: flex; 
+    align-items: center; 
+    gap: 0.6rem; 
+    margin: 1.8rem 0 0.75rem; 
+    padding-bottom: 0.5rem; 
+    border-bottom: 1px solid #E5E7EB; 
+}
+.sec-head span { 
+    font-size: 1.2rem; 
+    font-weight: 700; 
+    color: #111827; 
+}
+
 .metric-row { display: flex; gap: 1rem; margin: 1.5rem 0; }
-.metric-box { flex: 1; background: #F7F9FF; border: 1px solid #E5E5E5; border-radius: 12px; padding: 1rem 1.2rem; text-align: center; }
-.metric-val { font-size: 1.8rem; font-weight: 700; color: #2563EB; }
-.metric-lbl { font-size: 0.78rem; color: #6B7280; margin-top: 0.2rem; text-transform: uppercase; letter-spacing: 0.08em; }
-.weather-card { background: linear-gradient(135deg, #EFF6FF 0%, #F0F9FF 100%); border: 1px solid #BFDBFE; border-radius: 14px; padding: 1.4rem 1.6rem; margin-bottom: 1rem; }
-.weather-title { font-size: 0.78rem; font-weight: 600; color: #2563EB; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 0.8rem; }
-.final-card { background: #FFFFFF; border: 1px solid #E5E5E5; border-left: 4px solid #2563EB; border-radius: 14px; padding: 1.8rem; line-height: 1.8; color: #1F2937; font-size: 0.95rem; }
-.save-bar { background: #F7F9FF; border: 1px solid #E5E5E5; border-radius: 10px; padding: 0.85rem 1.2rem; color: #6B7280; font-size: 0.88rem; margin-top: 0.5rem; }
-.save-bar code { color: #1D4ED8 !important; background: #EFF4FF !important; }
-section[data-testid="stSidebar"] { background: #F1F5F9 !important; border-right: 1px solid #E2E8F0 !important; }
-section[data-testid="stSidebar"] * { color: #1E293B !important; }
-.sb-tech-chip { display: flex; align-items: center; gap: 0.55rem; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 0.45rem 0.75rem; margin-bottom: 0.4rem; font-size: 0.82rem; }
-.agent-card { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 0.75rem 0.9rem; margin-bottom: 0.55rem; position: relative; overflow: hidden; }
-.agent-card-accent { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 12px 0 0 12px; }
-.agent-card-inner { display: flex; align-items: center; gap: 0.65rem; padding-left: 0.4rem; }
-.agent-icon-box { width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
-.agent-name { font-size: 0.88rem !important; font-weight: 600 !important; color: #1E293B !important; }
-.agent-desc { font-size: 0.72rem !important; color: #64748B !important; margin-top: 0.1rem !important; }
-.agent-step { font-size: 0.65rem !important; font-weight: 700 !important; letter-spacing: 0.1em !important; text-transform: uppercase !important; }
-.agent-badge { font-size: 0.62rem; font-weight: 600; padding: 0.18rem 0.5rem; border-radius: 20px; letter-spacing: 0.05em; flex-shrink: 0; }
-.agent-connector { text-align: center; color: #94A3B8; font-size: 0.75rem; margin: -0.15rem 0; }
-.stTextArea textarea { background: #FFFFFF !important; border: 1.5px solid #D5D5D5 !important; border-radius: 10px !important; color: #111111 !important; font-size: 0.95rem !important; resize: none !important; }
-.stTextArea textarea:focus { border-color: #2563EB !important; box-shadow: 0 0 0 2px rgba(37,99,235,0.15) !important; }
-.stTextInput input { background: #FFFFFF !important; border: 1.5px solid #D5D5D5 !important; border-radius: 8px !important; color: #111111 !important; }
-.stMarkdown p, .stMarkdown li { color: #1F2937 !important; }
-.stMarkdown h1, .stMarkdown h2, .stMarkdown h3 { color: #111111 !important; }
-.stMarkdown a { color: #2563EB !important; text-decoration: none !important; }
+.metric-box { 
+    flex: 1; 
+    background: #F8FAFC; 
+    border: 1px solid #E2E8F0; 
+    border-radius: 12px; 
+    padding: 1rem 1.2rem; 
+    text-align: center; 
+}
+.metric-val { font-size: 1.8rem; font-weight: 800; color: #2563EB; }
+.metric-lbl { 
+    font-size: 0.78rem; 
+    color: #64748B; 
+    margin-top: 0.2rem; 
+    text-transform: uppercase; 
+    letter-spacing: 0.08em; 
+    font-weight: 600;
+}
+
+.weather-card { 
+    background: linear-gradient(135deg, #EFF6FF 0%, #F0F9FF 100%); 
+    border: 1px solid #BFDBFE; 
+    border-radius: 14px; 
+    padding: 1.4rem 1.6rem; 
+    margin-bottom: 1rem; 
+}
+.weather-title { 
+    font-size: 0.8rem; 
+    font-weight: 700; 
+    color: #2563EB; 
+    letter-spacing: 0.1em; 
+    text-transform: uppercase; 
+    margin-bottom: 0.8rem; 
+}
+.weather-card p {
+    margin: 0 0 0.4rem 0 !important;
+    line-height: 1.4;
+}
+.weather-card ul, .weather-card ol {
+    margin: 0.3rem 0 0.5rem 1.2rem;
+    padding-left: 0.8rem;
+}
+.weather-card li {
+    margin-bottom: 0.15rem;
+    line-height: 1.4;
+}
+.weather-card h1, .weather-card h2, .weather-card h3 {
+    margin-top: 0.6rem;
+    margin-bottom: 0.3rem;
+    line-height: 1.3;
+}
+/* Kill Streamlit's default paragraph margin inside the card */
+.weather-card > p,
+.weather-card > div > p {
+    margin-bottom: 0.35rem !important;
+}
+.weather-card .stMarkdown {
+    margin-bottom: 0.3rem;
+}
+.final-card { 
+    background: #FFFFFF; 
+    border: 1px solid #E2E8F0; 
+    border-left: 5px solid #2563EB; 
+    border-radius: 14px; 
+    padding: 1.8rem; 
+    line-height: 1.8; 
+    color: #1F2937; 
+    font-size: 0.95rem; 
+    box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+}
+
+.sb-tech-chip { 
+    display: flex; 
+    align-items: center; 
+    gap: 0.55rem; 
+    background: #FFFFFF; 
+    border: 1px solid #E2E8F0; 
+    border-radius: 8px; 
+    padding: 0.45rem 0.75rem; 
+    margin-bottom: 0.4rem; 
+    font-size: 0.82rem; 
+}
+.agent-card { 
+    background: #FFFFFF; 
+    border: 1px solid #E2E8F0; 
+    border-radius: 12px; 
+    padding: 0.75rem 0.9rem; 
+    margin-bottom: 0.55rem; 
+    position: relative; 
+    overflow: hidden; 
+}
+.agent-card-accent { 
+    position: absolute; 
+    left: 0; 
+    top: 0; 
+    bottom: 0; 
+    width: 3.5px; 
+    border-radius: 12px 0 0 12px; 
+}
+.agent-card-inner { 
+    display: flex; 
+    align-items: center; 
+    gap: 0.65rem; 
+    padding-left: 0.4rem; 
+}
+.agent-icon-box { 
+    width: 36px; 
+    height: 36px; 
+    border-radius: 9px; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    font-size: 1.1rem; 
+    flex-shrink: 0; 
+}
+.agent-name { font-size: 0.88rem !important; font-weight: 700 !important; color: #0F172A !important; }
+.agent-desc { font-size: 0.74rem !important; color: #1E293B !important; font-weight: 600 !important; margin-top: 0.15rem !important; }
+.agent-badge { 
+    font-size: 0.62rem; 
+    font-weight: 700 !important; 
+    padding: 0.22rem 0.55rem; 
+    border-radius: 20px; 
+    letter-spacing: 0.05em; 
+    flex-shrink: 0; 
+}
+
 #MainMenu, footer, header { visibility: hidden; }
-div[data-testid="stDownloadButton"] > button { background: #FFFFFF !important; color: #111111 !important; border: 1.5px solid #D5D5D5 !important; border-radius: 10px !important; }
-
-/* Style st.status headers */
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -60,110 +377,113 @@ div[data-testid="stDownloadButton"] > button { background: #FFFFFF !important; c
 with st.sidebar:
     st.markdown("""
     <div style="padding:0.5rem 0 0.2rem;">
-        <div style="font-size:1.25rem;font-weight:700;color:#1E293B;">✈️ AI Travel Planner</div>
-        <div style="font-size:0.78rem;color:#64748B;margin-top:0.2rem;">LangGraph · MCP · RAG</div>
+        <div style="font-size:1.25rem;font-weight:800;color:#0F172A;">✈️ AI Travel Planner</div>
+        <div style="font-size:0.78rem;color:#334155;font-weight:600;margin-top:0.2rem;">Supervisor Orchestrator · MCP · Qdrant RAG</div>
     </div>
     """, unsafe_allow_html=True)
     st.markdown("<hr style='border-color:#E2E8F0;margin:0.8rem 0;'>", unsafe_allow_html=True)
 
-    thread_id = st.text_input("👤 Session ID", value="mandar_traveller",
-                               help="Maintains your session memory via PostgreSQL")
+    thread_id = st.text_input(
+        "👤 Session / Thread ID",
+        value="mandar_traveller_7",
+        help="Maps directly to LangGraph PostgreSQL checkpoint thread_id"
+    )
 
     st.markdown("<hr style='border-color:#E2E8F0;margin:0.8rem 0;'>", unsafe_allow_html=True)
-    st.markdown("<div style='font-size:0.72rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#1E293B;margin-bottom:0.6rem;'>⚡ Powered By</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:0.72rem;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#0F172A;margin-bottom:0.6rem;'>⚡ Architecture Stack</div>", unsafe_allow_html=True)
 
     TECHS = [
-        ("🔗", "LangGraph",       "Multi-agent orchestration"),
-        ("🧠", "Groq · LLaMA 3.3","70B reasoning engine"),
-        ("🔍", "Pinecone RAG",    "Destination knowledge base"),
-        ("🌐", "Tavily MCP",      "Remote MCP server — web search"),
-        ("🌤️","OpenWeatherMap",  "Live weather data"),
-        ("🐘", "Supabase",        "Cloud PostgreSQL memory"),
+        ("🎯", "LangGraph Supervisor", "Dynamic routing & parallel fan-out"),
+        ("🧠", "Groq Reasoning Engine", "High-throughput LLM reasoning"),
+        ("⚡", "Qdrant + FlashRank", "Two-stage dense RAG + reranker"),
+        ("🔌", "FastMCP Server (stdio)", "Critical-path JSON-RPC 2.0 tool execution"),
+        ("🐘", "PostgreSQL Pool", "psycopg_pool state checkpointer"),
     ]
+
     for icon, name, desc in TECHS:
         st.markdown(f"""
         <div class="sb-tech-chip">
-            <span style="font-size:1rem;">{icon}</span>
-            <span><strong>{name}</strong>
-                  <span style="color:#64748B;font-size:0.72rem;"> — {desc}</span>
+            <span style="font-size:1.05rem;">{icon}</span>
+            <span><strong style="color:#0F172A;font-weight:700;">{name}</strong>
+                  <span style="color:#1E293B;font-size:0.75rem;font-weight:600;"> — {desc}</span>
             </span>
         </div>
         """, unsafe_allow_html=True)
 
     st.markdown("<hr style='border-color:#E2E8F0;margin:0.8rem 0;'>", unsafe_allow_html=True)
-    st.markdown("<div style='font-size:0.72rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#1E293B;margin-bottom:0.6rem;'>🤖 Agent Pipeline</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:0.72rem;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#0F172A;margin-bottom:0.6rem;'>🤖 Multi-Agent Graph Topology</div>", unsafe_allow_html=True)
 
-    AGENTS = [
-        {"step":"01","icon":"🔬","name":"Research Agent", "desc":"RAG · Visa · Culture",    "badge":"Pinecone RAG","accent":"#6366F1","bg":"rgba(99,102,241,0.15)","badge_bg":"rgba(99,102,241,0.2)","badge_color":"#A5B4FC","step_color":"#6366F1"},
-        {"step":"02","icon":"🚆","name":"Travel Agent",   "desc":"Flight · Train · Bus · Routes", "badge":"Tavily MCP", "accent":"#3B82F6","bg":"rgba(59,130,246,0.15)","badge_bg":"rgba(59,130,246,0.2)","badge_color":"#93C5FD","step_color":"#3B82F6"},
-        {"step":"03","icon":"🏨","name":"Hotel Agent",    "desc":"Prices · Ratings · Links","badge":"Tavily MCP", "accent":"#8B5CF6","bg":"rgba(139,92,246,0.15)","badge_bg":"rgba(139,92,246,0.2)","badge_color":"#C4B5FD","step_color":"#8B5CF6"},
-        {"step":"04","icon":"🌤️","name":"Weather Agent", "desc":"Live temp · Forecast",    "badge":"OpenWeather","accent":"#06B6D4","bg":"rgba(6,182,212,0.15)", "badge_bg":"rgba(6,182,212,0.2)", "badge_color":"#67E8F9","step_color":"#06B6D4"},
-        {"step":"05","icon":"💰","name":"Budget Agent",   "desc":"Cost · Breakdown · Tips", "badge":"LLaMA 3.3",  "accent":"#F59E0B","bg":"rgba(245,158,11,0.15)","badge_bg":"rgba(245,158,11,0.2)","badge_color":"#FCD34D","step_color":"#F59E0B"},
-        {"step":"06","icon":"🗓️","name":"Itinerary Agent","desc":"Day-by-day · Full plan",  "badge":"LLaMA 3.3",  "accent":"#10B981","bg":"rgba(16,185,129,0.15)","badge_bg":"rgba(16,185,129,0.2)","badge_color":"#6EE7B7","step_color":"#10B981"},
+    GRAPH_NODES = [
+        {"role":"ORCHESTRATOR","icon":"🎯","name":"Supervisor Node","desc":"Task decomposition & dynamic routing","badge":"Master","accent":"#2563EB","bg":"rgba(37,99,235,0.12)","badge_bg":"rgba(37,99,235,0.15)","badge_color":"#1D4ED8"},
+        {"role":"PARALLEL FAN-OUT","icon":"🔬","name":"Research Agent","desc":"Two-Stage Qdrant RAG + Visa Rules","badge":"Qdrant RAG","accent":"#4F46E5","bg":"rgba(79,70,229,0.12)","badge_bg":"rgba(79,70,229,0.15)","badge_color":"#4338CA"},
+        {"role":"PARALLEL FAN-OUT","icon":"🚆","name":"Flight & Transit Agent","desc":"Tavily MCP Search & Transit Options","badge":"MCP Search","accent":"#2563EB","bg":"rgba(37,99,235,0.12)","badge_bg":"rgba(37,99,235,0.15)","badge_color":"#1D4ED8"},
+        {"role":"PARALLEL FAN-OUT","icon":"🏨","name":"Hotel Agent","desc":"Accommodation & Area Recommendations","badge":"MCP Search","accent":"#7C3AED","bg":"rgba(124,58,237,0.12)","badge_bg":"rgba(124,58,237,0.15)","badge_color":"#6D28D9"},
+        {"role":"PARALLEL FAN-OUT","icon":"🌤️","name":"Weather Agent","desc":"OpenWeather MCP Live Temp & Forecast","badge":"MCP Weather","accent":"#0891B2","bg":"rgba(8,145,178,0.12)","badge_bg":"rgba(8,145,178,0.15)","badge_color":"#0E7490"},
+        {"role":"FAN-IN SYNTHESIS","icon":"💰","name":"Budget Agent","desc":"Multi-tier Cost Calculations in INR ₹","badge":"Financial LLM","accent":"#D97706","bg":"rgba(217,119,6,0.12)","badge_bg":"rgba(217,119,6,0.15)","badge_color":"#B45309"},
+        {"role":"FAN-IN SYNTHESIS","icon":"🗓️","name":"Itinerary Agent","desc":"Final Day-by-Day Comprehensive Plan","badge":"Synthesizer","accent":"#059669","bg":"rgba(5,150,105,0.12)","badge_bg":"rgba(5,150,105,0.15)","badge_color":"#047857"},
     ]
-    for i, ag in enumerate(AGENTS):
+    for ag in GRAPH_NODES:
         st.markdown(f"""
         <div class="agent-card">
             <div class="agent-card-accent" style="background:{ag['accent']};"></div>
             <div class="agent-card-inner">
                 <div class="agent-icon-box" style="background:{ag['bg']};">{ag['icon']}</div>
                 <div style="flex:1;">
-                    <div class="agent-step" style="color:{ag['step_color']};">STEP {ag['step']}</div>
+                    <div style="font-size:0.62rem;font-weight:800;color:{ag['accent']};letter-spacing:0.08em;">{ag['role']}</div>
                     <div class="agent-name">{ag['name']}</div>
                     <div class="agent-desc">{ag['desc']}</div>
                 </div>
-                <div class="agent-badge" style="background:{ag['badge_bg']};color:{ag['badge_color']};border:1px solid {ag['badge_color']}33;">{ag['badge']}</div>
+                <div class="agent-badge" style="background:{ag['badge_bg']};color:{ag['badge_color']};border:1px solid {ag['badge_color']}40;">{ag['badge']}</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
-        if i < len(AGENTS) - 1:
-            st.markdown("<div class='agent-connector'>▼</div>", unsafe_allow_html=True)
-
-    st.markdown("<hr style='border-color:#E2E8F0;margin:0.8rem 0;'>", unsafe_allow_html=True)
-    st.markdown("<div style='font-size:0.72rem;color:#64748B;text-align:center;'>LangGraph · MCP · RAG · Groq</div>", unsafe_allow_html=True)
 
 
-# ── Hero ──
+# ── Hero Section ──
 st.markdown("""
 <div class="hero-wrapper">
-    <img style="width:100%;height:100%;object-fit:cover;filter:brightness(0.55);position:absolute;inset:0;"
+    <img style="width:100%;height:100%;object-fit:cover;filter:brightness(0.45);position:absolute;inset:0;"
          src="https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1400&q=80"/>
     <div class="hero-content">
-        <div class="hero-badge">✦ LangGraph · MCP · RAG · Multi-Agent</div>
-        <div class="hero-title">✈️ AI Travel Planning System</div>
-        <div class="hero-sub">Six specialized AI agents — researching destinations with RAG, finding flights and hotels via Tavily MCP, checking live weather, calculating budgets and building your complete day-by-day itinerary.</div>
+        <div class="hero-badge">✦ LangGraph Supervisor · MCP · Two-Stage Qdrant RAG</div>
+        <div class="hero-title">✈️ AI Multi-Agent Travel Planner</div>
+        <div class="hero-sub">Orchestrated by a Master Supervisor with parallel specialist execution across destination RAG, transport, accommodations, live weather, budgeting, and comprehensive day-wise itinerary synthesis.</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
 
-# ── Destination Cards ──
+# ── Destination Quick Select ──
 DESTINATIONS = [
-    ("🇯🇵 Tokyo",   "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=300&q=70"),
-    ("🇫🇷 Paris",   "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=300&q=70"),
-    ("🇹🇭 Bangkok", "https://images.unsplash.com/photo-1508009603885-50cf7c579365?w=300&q=70"),
-    ("🇮🇹 Rome",    "https://images.unsplash.com/photo-1552832230-c0197dd311b5?w=300&q=70"),
-    ("🇦🇪 Dubai",   "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=300&q=70"),
+    ("🇯🇵 Tokyo, Japan",    "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=300&q=70"),
+    ("🇫🇷 Paris, France",    "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=300&q=70"),
+    ("🇦🇪 Dubai, UAE",      "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=300&q=70"),
+    ("🇮🇩 Bali, Indonesia",  "https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=300&q=70"),
+    ("🇹🇭 Bangkok, Thailand","https://images.unsplash.com/photo-1508009603885-50cf7c579365?w=300&q=70"),
 ]
 cols = st.columns(5)
 for col, (name, img_url) in zip(cols, DESTINATIONS):
     with col:
         st.markdown(f"""
-        <div style="border-radius:10px;overflow:hidden;position:relative;height:90px;border:1px solid #E5E5E5;">
+        <div style="border-radius:10px;overflow:hidden;position:relative;height:85px;border:1px solid #E2E8F0;">
             <img src="{img_url}" style="width:100%;height:100%;object-fit:cover;filter:brightness(0.6);"/>
-            <div style="position:absolute;bottom:8px;left:0;right:0;text-align:center;color:#fff;font-size:0.8rem;font-weight:600;text-shadow:0 2px 10px rgba(0,0,0,0.6);">{name}</div>
+            <div style="position:absolute;bottom:8px;left:0;right:0;text-align:center;color:#fff;font-size:0.8rem;font-weight:700;text-shadow:0 2px 10px rgba(0,0,0,0.6);">{name}</div>
         </div>
         """, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── Query Input ──
-st.markdown("<div class='input-label'>🗺️ Describe your trip</div>", unsafe_allow_html=True)
 
+# ── Query Input ──
 if "user_query" not in st.session_state:
     st.session_state["user_query"] = ""
 
-QUICK = ["7-day Japan under ₹2L", "Paris trip for 5 days", "Dubai weekend trip", "Bali backpacking 10 days"]
+QUICK = [
+    "7-day Japan cherry blossom trip under ₹2.5 Lakhs",
+    "Paris 5-day cultural holiday with museums and food",
+    "Dubai 4-day luxury weekend with desert safari",
+    "Bali 10-day budget backpacking and scuba diving"
+]
 qcols = st.columns(len(QUICK))
 for qc, label in zip(qcols, QUICK):
     with qc:
@@ -171,168 +491,203 @@ for qc, label in zip(qcols, QUICK):
             st.session_state["user_query"] = label
 
 user_query = st.text_area(
-    "", value=st.session_state["user_query"],
-    placeholder="e.g. Plan a complete 7-day Japan trip including flights, hotels and sightseeing under ₹2 lakhs",
-    height=100, label_visibility="collapsed"
+    "Describe your trip:",
+    value=st.session_state["user_query"],
+    placeholder="e.g. Plan a 7-day trip to Tokyo and Kyoto including visa guidelines, flights from Mumbai, boutique hotels, and budget breakdown in INR",
+    height=95,
+    label_visibility="collapsed"
 )
 st.session_state["user_query"] = user_query
-generate = st.button("🚀  Generate My Travel Plan", use_container_width=True)
+generate = st.button("🚀  Orchestrate Travel Multi-Agent Graph", use_container_width=True)
 
 AGENT_META = {
-    "research_agent":  ("🔬", "Research Agent"),
-    "flight_agent":    ("🚆",  "Travel Agent"),
-    "hotel_agent":     ("🏨",  "Hotel Agent"),
-    "weather_agent":   ("🌤️", "Weather Agent"),
-    "budget_agent":    ("💰",  "Budget Agent"),
-    "itinerary_agent": ("🗓️", "Itinerary Agent"),
+    "supervisor":      ("🎯", "Supervisor Orchestrator", "Routing & Planning"),
+    "research_agent":  ("🔬", "Research Agent", "Two-Stage Qdrant RAG + Visa Rules"),
+    "flight_agent":    ("🚆", "Flight & Transport Agent", "MCP Web Search"),
+    "hotel_agent":     ("🏨", "Hotel Agent", "MCP Accommodation Search"),
+    "weather_agent":   ("🌤️", "Weather Agent", "MCP Live Weather & Forecast"),
+    "budget_agent":    ("💰", "Budget Agent", "INR Cost Calculation"),
+    "itinerary_agent": ("🗓️", "Itinerary Agent", "Comprehensive Master Plan Synthesis"),
 }
 
 
-# ── Main Generation ──
+# ── Graph Execution Streaming ──
 if generate:
     if not user_query.strip():
-        st.warning("Please describe your trip first.")
+        st.warning("Please describe your trip before generating.")
     else:
-        config    = {"configurable": {"thread_id": thread_id}}
+        config = {"configurable": {"thread_id": thread_id}}
         collected = {
             "research_results": "",
-            "flight_results":   "",
-            "hotel_results":    "",
-            "weather_results":  "",
-            "budget_results":   "",
-            "itinerary":        "",
-            "llm_calls":        0,
+            "flight_results": "",
+            "hotel_results": "",
+            "weather_results": "",
+            "budget_results": "",
+            "itinerary": "",
+            "llm_calls": 0,
+            "destination": "",
+            "trip_type": ""
         }
 
         st.markdown("---")
-        st.markdown("<div class='sec-head'><span>🤖 Agent Pipeline — Live</span></div>", unsafe_allow_html=True)
+        st.markdown("<div class='sec-head'><span>⚡ Live Multi-Agent Graph Execution</span></div>", unsafe_allow_html=True)
 
         for chunk in app.stream(
             {
-                "messages":         [HumanMessage(content=user_query)],
-                "user_query":       user_query,
+                "messages": [HumanMessage(content=user_query)],
+                "user_query": user_query,
+                "destination": "",
+                "trip_type": "",
+                "plan_steps": [],
+                "active_agent": "start",
                 "research_results": "",
-                "flight_results":   "",
-                "hotel_results":    "",
-                "weather_results":  "",
-                "budget_results":   "",
-                "itinerary":        "",
-                "llm_calls":        0,
+                "flight_results": "",
+                "hotel_results": "",
+                "weather_results": "",
+                "budget_results": "",
+                "itinerary": "",
+                "llm_calls": 0,
             },
             config=config,
             stream_mode="updates",
         ):
             for node_name, state_update in chunk.items():
-                icon, label = AGENT_META.get(node_name, ("🔧", node_name))
+                icon, label, subtitle = AGENT_META.get(node_name, ("🔧", node_name, "Processing"))
 
-                # Bold black title header
                 st.markdown(
-                    f"<div style='background:#F1F5F9;color:#111111;border:1.5px solid #E2E8F0;padding:12px 18px;"
-                    f"border-radius:10px 10px 0 0;font-size:1.1rem;font-weight:800;"
-                    f"letter-spacing:0.03em;margin-top:1rem;'>{icon} {label}</div>",
+                    f"<div style='background:#F8FAFC;color:#0F172A;border:1.5px solid #E2E8F0;padding:10px 16px;"
+                    f"border-radius:10px 10px 0 0;font-size:1.05rem;font-weight:700;"
+                    f"letter-spacing:0.02em;margin-top:1rem;display:flex;justify-content:space-between;align-items:center;'>"
+                    f"<span>{icon} {label}</span>"
+                    f"<span style='font-size:0.75rem;color:#64748B;font-weight:500;'>{subtitle}</span>"
+                    f"</div>",
                     unsafe_allow_html=True
                 )
 
                 with st.container(border=True):
-                    if node_name == "research_agent":
+                    if node_name == "supervisor":
+                        dest = state_update.get("destination", "Detected")
+                        ttype = state_update.get("trip_type", "Trip")
+                        steps = state_update.get("plan_steps", [])
+                        collected["destination"] = dest
+                        collected["trip_type"] = ttype
+                        st.info(f"**Supervisor Decision:** Destination: `{dest}` | Trip Type: `{ttype}` | Specialists Dispatched: `{', '.join(steps)}`")
+
+                    elif node_name == "research_agent":
                         text = state_update.get("research_results", "")
                         collected["research_results"] = text
-                        st.markdown(text or "_No research data._")
+                        st.markdown(strip_markdown_tables(clean_llm_output(text)) or "_No research data._")
+
                     elif node_name == "flight_agent":
                         text = state_update.get("flight_results", "")
                         collected["flight_results"] = text
-                        st.markdown(text or "_No travel data._")
+                        st.markdown(strip_markdown_tables(clean_llm_output(text)) or "_No transit data._")
+
                     elif node_name == "hotel_agent":
                         text = state_update.get("hotel_results", "")
                         collected["hotel_results"] = text
-                        st.markdown(text or "_No hotel data._")
+                        st.markdown(strip_markdown_tables(clean_llm_output(text)) or "_No hotel data._")
+
                     elif node_name == "weather_agent":
                         text = state_update.get("weather_results", "")
                         collected["weather_results"] = text
                         if text:
-                            st.markdown(f"""
-                            <div class="weather-card">
-                                <div class="weather-title">🌤️ Live Weather Data</div>
-                                <div style="color:#1F2937;font-size:0.9rem;line-height:1.7;white-space:pre-wrap;">{text.strip()}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
+                            st.markdown('<div class="weather-card">', unsafe_allow_html=True)
+                            st.markdown('<div class="weather-title">🌤️ Real-Time Weather & Forecast</div>', unsafe_allow_html=True)
+                            st.markdown(tidy_weather(clean_llm_output(text)))
+                            st.markdown('</div>', unsafe_allow_html=True)
+
                     elif node_name == "budget_agent":
                         text = state_update.get("budget_results", "")
                         collected["budget_results"] = text
-                        st.markdown(text or "_No budget data._")
+                        st.markdown(strip_markdown_tables(clean_llm_output(text)) or "_No budget data._")
+
                     elif node_name == "itinerary_agent":
                         text = state_update.get("itinerary", "")
                         collected["itinerary"] = text
-                        st.markdown(text or "_No itinerary generated._")
-                    collected["llm_calls"] = state_update.get("llm_calls", collected["llm_calls"])
+                        st.markdown(strip_markdown_tables(clean_llm_output(text)) or "_No itinerary._")
+
+                    collected["llm_calls"] += state_update.get("llm_calls", 1)
 
         # ── Metrics ──
         st.markdown(f"""
         <div class="metric-row">
-            <div class="metric-box"><div class="metric-val">6</div><div class="metric-lbl">Agents Run</div></div>
-            <div class="metric-box"><div class="metric-val">{collected['llm_calls']}</div><div class="metric-lbl">LLM Calls</div></div>
-            <div class="metric-box"><div class="metric-val">✅</div><div class="metric-lbl">Status</div></div>
-            <div class="metric-box"><div class="metric-val">🌤️</div><div class="metric-lbl">Live Weather</div></div>
+            <div class="metric-box"><div class="metric-val">7</div><div class="metric-lbl">Graph Nodes</div></div>
+            <div class="metric-box"><div class="metric-val">{collected['llm_calls']}</div><div class="metric-lbl">LLM Inferences</div></div>
+            <div class="metric-box"><div class="metric-val">Parallel</div><div class="metric-lbl">Execution Mode</div></div>
+            <div class="metric-box"><div class="metric-val">PostgreSQL</div><div class="metric-lbl">Checkpoint State</div></div>
         </div>
         """, unsafe_allow_html=True)
 
-        # ── Final Itinerary ──
+        # ── Final Master Itinerary ──
         if collected["itinerary"]:
-            st.markdown("<div class='sec-head'><span>🗓️ Your Complete Travel Itinerary</span></div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='final-card'>{collected['itinerary']}</div>", unsafe_allow_html=True)
+            st.markdown("<div class='sec-head'><span>🗓️ Master Synthesized Travel Itinerary</span></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='final-card'>{strip_markdown_tables(clean_llm_output(collected['itinerary']))}</div>", unsafe_allow_html=True)
 
         # ── Save & Download ──
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename  = f"travel_plan_{timestamp}.md"
-        save_dir  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "travel_plans")
+        filename_md = f"travel_plan_{timestamp}.md"
+        filename_pdf = f"travel_plan_{timestamp}.pdf"
+        save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "travel_plans")
         os.makedirs(save_dir, exist_ok=True)
 
-        file_content = f"""# Travel Plan
+        file_content = f"""# Master Travel Plan
 **Query:** {user_query}
 **Generated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 **Session ID:** {thread_id}
+**Orchestration:** LangGraph Supervisor (Parallel Fan-Out & Fan-In)
 
 ---
 
-## 🔬 Destination Research
+## 🎯 Supervisor Strategy
+- **Destination:** {collected['destination']}
+- **Classification:** {collected['trip_type']}
+
+---
+
+## 🔬 Destination Research (Two-Stage Qdrant RAG)
 {collected['research_results'] or 'N/A'}
 
 ---
 
-## ✈️ Flight Information
+## ✈️ Flight & Ground Transportation (MCP Search)
 {collected['flight_results'] or 'N/A'}
 
 ---
 
-## 🏨 Hotel Information
+## 🏨 Accommodation & Stays (MCP Search)
 {collected['hotel_results'] or 'N/A'}
 
 ---
 
-## 🌤️ Weather Information
+## 🌤️ Weather Conditions & Advisory (FastMCP OpenWeather)
 {collected['weather_results'] or 'N/A'}
 
 ---
 
-## 💰 Budget Breakdown
+## 💰 Budget Breakdown (INR ₹)
 {collected['budget_results'] or 'N/A'}
 
 ---
 
-## 🗓️ Full Itinerary
+## 🗓️ Master Synthesized Itinerary
 {collected['itinerary'] or 'N/A'}
-
----
-*Agents: Research → Flight → Hotel → Weather → Budget → Itinerary | LLM Calls: {collected['llm_calls']}*
 """
-        with open(os.path.join(save_dir, filename), "w", encoding="utf-8") as f:
+        with open(os.path.join(save_dir, filename_md), "w", encoding="utf-8") as f:
             f.write(file_content)
 
-        dl_col, info_col = st.columns([1, 3])
-        with dl_col:
-            st.download_button("⬇️ Download Plan", data=file_content,
-                               file_name=filename, mime="text/markdown",
-                               use_container_width=True)
-        with info_col:
-            st.markdown(f"<div class='save-bar'>📁 Auto-saved → <code>travel_plans/{filename}</code></div>",
-                        unsafe_allow_html=True)
+        pdf_bytes = generate_pdf_bytes(file_content)
+        try:
+            with open(os.path.join(save_dir, filename_pdf), "wb") as f:
+                f.write(pdf_bytes)
+        except Exception as e:
+            print(f"Warning: PDF file write failed: {e}")
+
+        st.download_button(
+            "📄 Download PDF",
+            data=pdf_bytes,
+            file_name=filename_pdf,
+            mime="application/pdf",
+            use_container_width=True,
+            key="download_pdf"
+        )

@@ -1,58 +1,173 @@
-# Run this ONCE locally to populate Pinecone with travel knowledge
-# Command: python ingest_knowledge.py
+"""
+Document Ingestion Pipeline for Travel Planner System
+Ingests structured travel guides into local embedded Qdrant vector database (./qdrant_data).
+"""
 
 import os
-from pinecone import Pinecone
+import sys
+import glob
+import re
+import uuid
 from dotenv import load_dotenv
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
+from fastembed import TextEmbedding
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 load_dotenv()
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
-TRAVEL_KNOWLEDGE = [
-    {"id":"japan_001","text":"Japan visa for Indian citizens: Tourist visa required. Apply at Japanese consulate with passport, photos, bank statements and itinerary. Processing takes 5-7 working days. Visa is free of charge.","destination":"Japan"},
-    {"id":"japan_002","text":"Best time to visit Japan: March-May for cherry blossoms, October-November for autumn foliage. Avoid Golden Week (late April-early May) as it gets crowded and expensive.","destination":"Japan"},
-    {"id":"japan_003","text":"Japan currency: Japanese Yen (JPY). 1 USD = approximately 150 JPY. Cash is widely used. Get yen from airport ATMs or 7-Eleven ATMs which accept international cards.","destination":"Japan"},
-    {"id":"japan_004","text":"Japan transport: Buy JR Pass before arriving for unlimited Shinkansen bullet train travel. IC cards (Suica or Pasmo) work on all local trains and buses.","destination":"Japan"},
-    {"id":"japan_005","text":"Japan culture tips: Remove shoes when entering homes and some restaurants. Bow as greeting. Tipping is not customary and considered rude. Speak softly on public transport.","destination":"Japan"},
-    {"id":"paris_001","text":"Paris visa for Indian citizens: Schengen visa required. Apply at French consulate or VFS Global. Processing takes 15 working days. Need passport, travel insurance, hotel bookings, bank statements.","destination":"Paris"},
-    {"id":"paris_002","text":"Best time to visit Paris: April-June and September-October for pleasant weather. July-August is peak season with higher prices. December is magical for Christmas markets.","destination":"Paris"},
-    {"id":"paris_003","text":"Paris currency: Euro (EUR). 1 USD = approximately 0.92 EUR. Credit cards widely accepted. Use ATMs for better exchange rates, avoid airport currency counters.","destination":"Paris"},
-    {"id":"paris_004","text":"Paris transport: Paris Visite pass covers unlimited Metro, RER and bus travel. Metro is fastest way around the city. Velib bike sharing great for short distances.","destination":"Paris"},
-    {"id":"dubai_001","text":"Dubai visa for Indian citizens: Visa on arrival for 14 days. 30 or 90 day tourist visa available online through Emirates or Air Arabia websites. Visa on arrival fee is AED 100.","destination":"Dubai"},
-    {"id":"dubai_002","text":"Best time to visit Dubai: November to April for pleasant weather 20-30 degrees C. May to October is extremely hot 40-45 degrees C. Dubai Shopping Festival is January-February.","destination":"Dubai"},
-    {"id":"dubai_003","text":"Dubai currency: UAE Dirham (AED). 1 USD = approximately 3.67 AED. ATMs widely available. Tipping 10-15 percent customary in restaurants.","destination":"Dubai"},
-    {"id":"dubai_004","text":"Dubai culture: Dress modestly in public. Alcohol only in licensed venues. Ramadan special rules — no eating or drinking in public during daytime. Friday is day of rest.","destination":"Dubai"},
-    {"id":"bali_001","text":"Bali visa for Indian citizens: Visa on arrival for 30 days, extendable once for 30 more days. Cost is USD 35. Available at Ngurah Rai International Airport.","destination":"Bali"},
-    {"id":"bali_002","text":"Best time to visit Bali: April-October dry season is ideal. November-March is wet season with heavy rainfall but lush green landscapes and fewer tourists.","destination":"Bali"},
-    {"id":"bali_003","text":"Bali currency: Indonesian Rupiah (IDR). 1 USD = approximately 15,000 IDR. Always carry cash as many local warungs do not accept cards.","destination":"Bali"},
-    {"id":"bangkok_001","text":"Bangkok visa for Indian citizens: Visa on arrival for 15 days, cost THB 2000. Or apply for 60-day tourist visa at Thai consulate with passport, photo, onward ticket, hotel booking.","destination":"Bangkok"},
-    {"id":"bangkok_002","text":"Best time to visit Bangkok: November to February for cool dry weather. March-May is hot season. June-October is rainy season with occasional flooding.","destination":"Bangkok"},
-    {"id":"bangkok_003","text":"Bangkok transport: BTS Skytrain and MRT Metro are best ways to avoid traffic. Use Grab app for taxis. Tuk-tuks for short distances. River ferries along Chao Phraya river.","destination":"Bangkok"},
-    {"id":"general_001","text":"Travel insurance: Always buy comprehensive travel insurance covering medical emergencies, trip cancellation and baggage loss. Required for Schengen visa. Cost is typically 2-5 percent of total trip cost.","destination":"General"},
-    {"id":"general_002","text":"Budget travel tips: Book flights 6-8 weeks in advance for best prices. Use Google Flights price tracking. Street food is safe and delicious in most Asian countries.","destination":"General"},
-    {"id":"general_003","text":"Packing essentials: Universal power adapter, portable charger, copies of passport and visa, local SIM card, travel lock, first aid kit, microfiber towel.","destination":"General"},
-]
+COLLECTION_NAME = "travel_knowledge"
+EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
+VECTOR_SIZE = 384  # bge-small-en-v1.5 output dimension
+
+
+def parse_markdown_doc(file_path: str):
+    """
+    Parses a markdown travel document with sections:
+    # Destination: <Name>
+    ## Category: <Category>
+    <Content>
+    """
+    with open(file_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Extract default destination and normalize
+    dest_match = re.search(r"^#\s*Destination:\s*(.+)$", content, re.MULTILINE | re.IGNORECASE)
+    default_dest = dest_match.group(1).strip().title() if dest_match else "General"
+
+    # Split sections by ## Category:
+    sections = re.split(r"(?=^##\s*Category:)", content, flags=re.MULTILINE | re.IGNORECASE)
+    docs = []
+
+    for section in sections:
+        section = section.strip()
+        if not section or section.startswith("# Destination:"):
+            continue
+
+        cat_match = re.search(r"^##\s*Category:\s*(.+)$", section, re.MULTILINE | re.IGNORECASE)
+        category = cat_match.group(1).strip().title() if cat_match else "General"
+
+        # Remove header line to get body
+        body = re.sub(r"^##\s*Category:\s*.+$", "", section, flags=re.MULTILINE | re.IGNORECASE).strip()
+        if not body:
+            continue
+
+        docs.append({
+            "destination": default_dest,
+            "category": category,
+            "text": body,
+            "source_file": os.path.basename(file_path)
+        })
+
+    return docs
+
+
+def get_qdrant_client():
+    return QdrantClient(path="./qdrant_data")
+
 
 def ingest():
-    print("Connecting to Pinecone...")
-    pc    = Pinecone(api_key=PINECONE_API_KEY)
-    index = pc.Index("travel-knowledge")
-    print(f"Embedding {len(TRAVEL_KNOWLEDGE)} documents...")
-    texts      = [doc["text"] for doc in TRAVEL_KNOWLEDGE]
-    embeddings = pc.inference.embed(
-        model="llama-text-embed-v2",
-        inputs=texts,
-        parameters={"input_type": "passage"}
+    client = get_qdrant_client()
+
+    # Initialize FastEmbed Dense Embedder
+    print(f"Loading embedding model '{EMBEDDING_MODEL_NAME}'...")
+    embed_model = TextEmbedding(model_name=EMBEDDING_MODEL_NAME)
+
+    # Setup Qdrant collection with clean fresh indexing
+    collections = [c.name for c in client.get_collections().collections]
+    if COLLECTION_NAME in collections:
+        print(f"Recreating collection '{COLLECTION_NAME}' for fresh indexing...")
+        client.delete_collection(COLLECTION_NAME)
+
+    print(f"Creating collection '{COLLECTION_NAME}' (dimension: {VECTOR_SIZE}, Cosine)...")
+    client.create_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config=models.VectorParams(
+            size=VECTOR_SIZE,
+            distance=models.Distance.COSINE
+        ),
+        # Enable scalar quantization for memory efficiency
+        quantization_config=models.ScalarQuantization(
+            scalar=models.ScalarQuantizationConfig(
+                type=models.ScalarType.INT8,
+                quantile=0.99,
+                always_ram=True
+            )
+        )
     )
-    vectors = []
-    for i, doc in enumerate(TRAVEL_KNOWLEDGE):
-        vectors.append({
-            "id":       doc["id"],
-            "values":   embeddings[i].values,
-            "metadata": {"text": doc["text"], "destination": doc["destination"]}
-        })
-    index.upsert(vectors=vectors)
-    print(f"✅ Successfully uploaded {len(vectors)} documents to Pinecone!")
+    # Create payload indexes for pre-filtering
+    client.create_payload_index(
+        collection_name=COLLECTION_NAME,
+        field_name="destination",
+        field_schema=models.PayloadSchemaType.KEYWORD
+    )
+    client.create_payload_index(
+        collection_name=COLLECTION_NAME,
+        field_name="category",
+        field_schema=models.PayloadSchemaType.KEYWORD
+    )
+    print("✅ Collection and payload indices created successfully.")
+
+    # Load and chunk documents (1000-char chunks for rich cross-encoder context)
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=150,
+        separators=["\n\n", "\n", ". ", " ", ""]
+    )
+
+    docs_dir = os.path.join(os.path.dirname(__file__), "data", "knowledge")
+    doc_files = glob.glob(os.path.join(docs_dir, "*.md"))
+    print(f"Found {len(doc_files)} knowledge documents in {docs_dir}")
+
+    all_chunks = []
+    for file_path in doc_files:
+        sections = parse_markdown_doc(file_path)
+        for sec in sections:
+            split_texts = splitter.split_text(sec["text"])
+            for idx, chunk_text in enumerate(split_texts):
+                all_chunks.append({
+                    "id": str(uuid.uuid4()),
+                    "text": chunk_text,
+                    "destination": sec["destination"],
+                    "category": sec["category"],
+                    "source_file": sec["source_file"],
+                    "chunk_id": f"{sec['source_file']}_{sec['category']}_{idx}",
+                    "char_count": len(chunk_text)
+                })
+
+    print(f"Generated {len(all_chunks)} semantic chunks. Generating dense embeddings...")
+    texts = [c["text"] for c in all_chunks]
+    embeddings = list(embed_model.embed(texts))
+
+    points = [
+        models.PointStruct(
+            id=chunk["id"],
+            vector=embedding.tolist(),
+            payload={
+                "text": chunk["text"],
+                "destination": chunk["destination"],
+                "category": chunk["category"],
+                "source_file": chunk["source_file"],
+                "chunk_id": chunk["chunk_id"],
+                "char_count": chunk["char_count"]
+            }
+        )
+        for chunk, embedding in zip(all_chunks, embeddings)
+    ]
+
+    print(f"Upserting {len(points)} points into Qdrant collection '{COLLECTION_NAME}'...")
+    client.upsert(
+        collection_name=COLLECTION_NAME,
+        points=points
+    )
+    print(f"✅ Ingestion complete! {len(points)} points indexed in Qdrant.")
+
 
 if __name__ == "__main__":
     ingest()
