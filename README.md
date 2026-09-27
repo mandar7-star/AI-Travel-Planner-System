@@ -107,12 +107,19 @@ streamlit run frontend.py
 ## 🚀 Key Highlights
 
 - 🤖 **LangGraph Supervisor Graph** — Dynamic supervisor with parallel fan-out (`research`, `flight`, `hotel`, `weather`) and fan-in (`budget`, `itinerary`).
+
 - 🔌 **FastMCP (Model Context Protocol)** — Official MCP server running over `stdio` for standardized, decoupled tool discovery and execution.
+
 - 🎯 **Two-Stage RAG Pipeline** — Qdrant vector retrieval (Bi-Encoder Recall@10) + FlashRank Cross-Encoder reranking (Precision@3).
+
 - 🐘 **PostgreSQL Checkpointing** — Full state persistence, session continuity, and time-travel debugging via native PostgreSQL on port 5432 with `psycopg_pool` (with automatic graceful fallback to `MemorySaver`).
+
 - ⚡ **High-Speed Groq Inference** — Fail-fast `openai/gpt-oss-120b` with instant automated fallback to `openai/gpt-oss-20b` on rate limits.
+
 - 🌤️ **Live Weather & Forecast** — OpenWeatherMap API integration with clothing, packing, and activity advisories.
+
 - 💰 **INR Budget Breakdown** — Comprehensive trip cost estimates across Budget, Mid-Range, and Luxury tiers.
+
 - 🖥️ **Interactive Web UI** — Modern Streamlit UI with live agent execution timeline, MCP status chips, and session management.
 
 ---
@@ -120,40 +127,34 @@ streamlit run frontend.py
 ## 🧠 System Architecture
 
 ```
-                      ┌──────────────────┐
-                      │    User Query    │
-                      └─────────┬────────┘
-                                │
-                      ┌─────────▼────────┐
-                      │    Supervisor    │
-                      └─────────┬────────┘
-        ┌───────────────────────┼───────────────────────┐
-        │                       │                       │
- ┌──────▼──────┐         ┌──────▼──────┐         ┌──────▼──────┐
- │  Research   │         │Flight/Travel│         │    Hotel    │
- │    Agent    │         │    Agent    │         │    Agent    │
- └──────┬──────┘         └──────┬──────┘         └──────┬──────┘
-        │ (Embedded Qdrant)     │ (FastMCP)             │ (FastMCP)
-        │                       │                       │
-        └───────────────────────┼───────────────────────┘
-                                │
-                         ┌──────▼──────┐
-                         │   Weather   │
-                         │    Agent    │
-                         └──────┬──────┘
-                                │ (FastMCP)
-                         ┌──────▼──────┐
-                         │Budget Agent │
-                         └──────┬──────┘
-                                │ (INR Synthesis)
-                         ┌──────▼──────┐
-                         │  Itinerary  │
-                         │    Agent    │
-                         └──────┬──────┘
-                                │
-                         ┌──────▼──────┐
-                         │PostgreSQL DB│ (Native Checkpointing on 5432)
-                         └─────────────┘
+                    ┌──────────────────┐
+                    │   User Query     │
+                    └────────┬─────────┘
+                             ▼
+                    ┌──────────────────┐
+                    │    Supervisor    │
+                    └────────┬─────────┘
+                             │ parallel fan-out
+         ┌───────────┬───────┼───────┬────────────┐
+         ▼           ▼       ▼       ▼
+     Research    Flight   Hotel   Weather
+     (Qdrant)    (MCP)    (MCP)   (MCP)
+         │           │       │       │
+         └───────────┴───────┼───────┘
+                             │ fan-in
+                             ▼
+                    ┌──────────────────┐
+                    │   Budget Agent   │
+                    └────────┬─────────┘
+                             ▼
+                    ┌──────────────────┐
+                    │ Itinerary Agent  │
+                    └────────┬─────────┘
+                             ▼
+                    ┌──────────────────┐
+                    │   PostgreSQL     │
+                    │   (checkpoints)  │
+                    └──────────────────┘
 ```
 
 ---
@@ -176,13 +177,26 @@ streamlit run frontend.py
 
 ## 📸 Screenshots
 
-The following screenshots demonstrating the system UI, agent execution pipeline, and exported itinerary can be found in the [`screenshots/`](screenshots/) folder:
+The following screenshots demonstrate the system UI, multi-agent orchestration, and generated travel itineraries:
 
-| File Name | Description | Preview |
-|---|---|---|
-| **`1_main_ui.png`** | **Interactive Streamlit Web UI** — Query input, destination configuration, and active search status | ![Main UI](screenshots/1_main_ui.png) |
-| **`2_agents_pipeline.png`** | **Agent Execution Pipeline** — Supervisor graph orchestration, parallel fan-out agents, and real-time execution timeline | ![Agents Pipeline](screenshots/2_agents_pipeline.png) |
-| **`3_download.png`** | **Trip Plan & Export** — Synthesized day-wise itinerary, weather forecast, INR budget breakdown, and PDF/Markdown download options | ![Download & Export](screenshots/3_download.png) |
+### 1. Interactive Web UI
+Query input, destination configuration, and active search status in Streamlit:
+
+![Interactive Streamlit Web UI](screenshots/1_main_ui.png)
+
+---
+
+### 2. Multi-Agent Execution Pipeline
+Supervisor graph orchestration with live parallel fan-out agent execution and real-time status chips:
+
+![Agent Execution Pipeline](screenshots/2_agents_pipeline.png)
+
+---
+
+### 3. Trip Plan & Download
+Synthesized day-wise itinerary, weather forecast, INR budget breakdown, and export options:
+
+![Trip Plan & Download](screenshots/3_download.png)
 
 ---
 
@@ -198,5 +212,5 @@ The following screenshots demonstrating the system UI, agent execution pipeline,
 ## 👨‍💻 Author
 
 **Mandar Borhade**
-- LinkedIn: [mandarborhade](https://www.linkedin.com/in/mandarborhade)
-- GitHub: [mandar7-star](https://github.com/mandar7-star)
+- LinkedIn: (https://www.linkedin.com/in/mandarborhade)
+- GitHub: (https://github.com/mandar7-star)
