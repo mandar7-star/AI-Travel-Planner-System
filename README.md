@@ -202,33 +202,35 @@ streamlit run frontend.py
 AI-Travel-Planner-System/
 │
 ├── data/
-│   └── knowledge/              # Destination knowledge files (.md) for 50+ countries & cities
+│   └── knowledge/              # Destination knowledge files for 50+ locations
 │       ├── bali.md
 │       ├── dubai.md
 │       ├── france.md
 │       ├── india.md
 │       ├── japan.md
-│       └── ... (50+ curated destination guides)
+│       └── ...
 │
-├── screenshots/                # UI demo captures and agent execution pipeline previews
+├── qdrant_data/                # Embedded Qdrant vector storage
+│
+├── screenshots/                # Application UI & pipeline previews
 │   ├── 1_main_ui.png
 │   ├── 2_agents_pipeline.png
 │   └── 3_download.png
 │
-├── travel_plans/               # Output directory for exported Markdown & PDF travel itineraries
+├── travel_plans/               # Exported Markdown & PDF travel itineraries
 │
-├── frontend.py                 # Streamlit UI with live execution timeline, tabs & download actions
-├── main.py                     # LangGraph supervisor workflow, graph compilation & agent orchestration
-├── mcp_server.py               # FastMCP server exposing web search & OpenWeatherMap tools via stdio
-├── mcp_client.py               # FastMCP client handling async tool calls with the MCP subprocess
-├── tools.py                    # Two-stage RAG retrieval (FastEmbed + Qdrant + FlashRank Cross-Encoder)
-├── ingest_knowledge.py         # Knowledge base vectorizer and ingestion pipeline for Qdrant
-├── inspect_qdrant.py           # Vector database inspection utility to verify indexed payloads
+├── frontend.py                 # Streamlit interactive web interface
+├── main.py                     # LangGraph supervisor workflow & state graph
+├── mcp_server.py               # FastMCP server for web search & weather tools
+├── mcp_client.py               # FastMCP client for stdio tool execution
+├── tools.py                    # Two-stage RAG pipeline (Qdrant + FlashRank)
+├── ingest_knowledge.py         # Knowledge embedding & Qdrant ingestion script
+├── inspect_qdrant.py           # Vector database inspection utility
 │
-├── .env.example                # Example configuration file for required API keys & database URLs
-├── .gitignore                  # Git exclusions for secrets, caches, and local databases
-├── requirements.txt            # Python dependencies and package specifications
-└── README.md                   # System documentation and architecture guide
+├── .env.example                # Sample environment variables template
+├── .gitignore                  # Git ignore configuration
+├── requirements.txt            # Python dependencies
+└── README.md                   # Project documentation
 ```
 
 ---
