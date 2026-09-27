@@ -288,5 +288,5 @@ Synthesized day-wise itinerary, weather forecast, INR budget breakdown, and expo
 ## 👨‍💻 Author
 
 **Mandar Borhade**
-- LinkedIn: (https://www.linkedin.com/in/mandarborhade)
-- GitHub: (https://github.com/mandar7-star)
+- LinkedIn: https://www.linkedin.com/in/mandarborhade
+- GitHub: https://github.com/mandar7-star
