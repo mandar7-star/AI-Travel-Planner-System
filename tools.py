@@ -1,11 +1,6 @@
 """
 Tools module for AI Travel Planner System.
-
-NOTE: Qdrant runs in local embedded mode, writing to ./qdrant_data.
-Primary tool execution path is via mcp_client -> mcp_server (FastMCP stdio).
-See DESIGN.md Step G & Step J for architectural rationale.
 """
-
 
 import os
 import sys
