@@ -6,19 +6,49 @@ Delivers complete, grounded, real-time travel plans with live web search, weathe
 
 ---
 
-## 🤖 Agent Details & Architecture
+## 🤖 Agent Details & Roles
 
 The system utilizes a **LangGraph Supervisor Multi-Agent Architecture** where specialized agents collaborate dynamically:
 
-| Agent | Core Role | Tools / Integration | Primary Output |
-|---|---|---|---|
-| 👑 **Supervisor Agent** | Master Orchestrator | Groq LLM Routing | Analyzes query, extracts destination, detects trip type (`INTERNATIONAL`, `DOMESTIC_SHORT`, `DOMESTIC_LONG`), and dispatches parallel specialist execution. |
-| 📚 **Research Agent** | Destination & Culture Expert | Two-Stage RAG (Embedded Qdrant + FlashRank Cross-Encoder) | Visa/entry rules for Indian citizens, currency & payments, safety guidelines, and local cultural etiquette. |
-| 🛫 **Flight & Transit Agent** | Transit Specialist | FastMCP (`tavily_search`) | Live flight routes, IRCTC train options, intercity buses/cabs, and estimated fares in INR (₹). |
-| 🏨 **Hotel Agent** | Accommodation Advisor | FastMCP (`tavily_search`) | Verified hotel options across budget, mid-range, and luxury tiers, plus neighborhood vibe and stay recommendations. |
-| 🌤️ **Weather Agent** | Climate & Packing Advisor | FastMCP (`get_current_weather`, `get_forecast`) | Real-time weather, 5-period forecast, seasonal advisories, and tailored packing checklists. |
-| 💰 **Budget Agent** | Financial Calculator | Groq LLM Synthesis | Consolidated INR (₹) cost breakdown (transit, stays, daily food, activities, buffer) for Backpacker, Mid-range, and Luxury tiers. |
-| 🗓️ **Itinerary Agent** | Master Synthesizer | Groq LLM Synthesis | Cohesive day-by-day master travel plan with morning, afternoon, and evening schedules, food spots, and practical checklists. |
+### 👑 1. Supervisor Agent (Master Orchestrator)
+- **Role**: Analyzes the natural language query, extracts travel parameters & destination, detects trip category (`INTERNATIONAL`, `DOMESTIC_SHORT`, `DOMESTIC_LONG`), and coordinates parallel execution across specialist agents.
+- **Integration**: Groq Fast LLM Routing (`openai/gpt-oss-120b` / `20b`)
+
+---
+
+### 📚 2. Research Agent (Destination & Culture Expert)
+- **Role**: Retrieves visa/entry requirements for Indian citizens, currency & payment rules, safety guidelines, and local cultural etiquette.
+- **Integration**: Two-Stage RAG (Embedded Qdrant Vector DB + FlashRank Cross-Encoder Reranker)
+
+---
+
+### 🛫 3. Flight & Transit Agent (Transit Specialist)
+- **Role**: Discovers live flight routes/schedules, IRCTC train connectivity, and intercity buses/cabs with estimated fares in INR (₹).
+- **Integration**: FastMCP Client (`tavily_search`)
+
+---
+
+### 🏨 4. Hotel Agent (Accommodation Advisor)
+- **Role**: Curates verified accommodations across budget, mid-range, and luxury tiers, providing neighborhood vibes and stay suggestions.
+- **Integration**: FastMCP Client (`tavily_search`)
+
+---
+
+### 🌤️ 5. Weather Agent (Climate & Packing Advisor)
+- **Role**: Fetches real-time weather, 5-period forecast projections, seasonal advisories, and generates customized packing checklists.
+- **Integration**: FastMCP Client (`get_current_weather`, `get_forecast` via OpenWeatherMap)
+
+---
+
+### 💰 6. Budget Agent (Financial Calculator)
+- **Role**: Calculates and synthesizes comprehensive INR (₹) cost breakdowns (transportation, lodging, daily meals, activities, and emergency buffer) across Backpacker, Mid-range, and Luxury tiers.
+- **Integration**: Groq LLM Synthesis
+
+---
+
+### 🗓️ 7. Itinerary Agent (Master Synthesizer)
+- **Role**: Synthesizes all specialist findings into a cohesive, structured day-by-day travel plan featuring morning, afternoon, and evening itineraries, dining recommendations, and practical travel tips.
+- **Integration**: Groq LLM Synthesis
 
 ---
 
@@ -127,34 +157,41 @@ streamlit run frontend.py
 ## 🧠 System Architecture
 
 ```
-                    ┌──────────────────┐
-                    │   User Query     │
-                    └────────┬─────────┘
-                             ▼
-                    ┌──────────────────┐
-                    │    Supervisor    │
-                    └────────┬─────────┘
-                             │ parallel fan-out
-         ┌───────────┬───────┼───────┬────────────┐
-         ▼           ▼       ▼       ▼
-     Research    Flight   Hotel   Weather
-     (Qdrant)    (MCP)    (MCP)   (MCP)
-         │           │       │       │
-         └───────────┴───────┼───────┘
-                             │ fan-in
-                             ▼
-                    ┌──────────────────┐
-                    │   Budget Agent   │
-                    └────────┬─────────┘
-                             ▼
-                    ┌──────────────────┐
-                    │ Itinerary Agent  │
-                    └────────┬─────────┘
-                             ▼
-                    ┌──────────────────┐
-                    │   PostgreSQL     │
-                    │   (checkpoints)  │
-                    └──────────────────┘
+                    ┌─────────────────────────┐
+                    │       User Query        │
+                    └────────────┬────────────┘
+                                 │
+                                 ▼
+                    ┌─────────────────────────┐
+                    │    Supervisor Agent     │
+                    └────────────┬────────────┘
+                                 │
+                                 │ parallel fan-out
+         ┌───────────────┬───────┴───────┬───────────────┐
+         │               │               │               │
+         ▼               ▼               ▼               ▼
+  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+  │  Research   │ │   Flight    │ │    Hotel    │ │   Weather   │
+  │  (Qdrant)   │ │    (MCP)    │ │    (MCP)    │ │    (MCP)    │
+  └──────┬──────┘ └──────┬──────┘ └──────┬──────┘ └──────┬──────┘
+         │               │               │               │
+         └───────────────┼───────┬───────┴───────────────┘
+                                 │ fan-in
+                                 ▼
+                    ┌─────────────────────────┐
+                    │      Budget Agent       │
+                    └────────────┬────────────┘
+                                 │
+                                 ▼
+                    ┌─────────────────────────┐
+                    │     Itinerary Agent     │
+                    └────────────┬────────────┘
+                                 │
+                                 ▼
+                    ┌─────────────────────────┐
+                    │       PostgreSQL        │
+                    │  (State Checkpoints)    │
+                    └─────────────────────────┘
 ```
 
 ---
