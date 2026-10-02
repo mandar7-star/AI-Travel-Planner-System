@@ -88,7 +88,7 @@ git clone https://github.com/mandar7-star/AI-Travel-Planner-System.git
 cd AI-Travel-Planner-System
 
 # Create virtual environment
-python -m venv venv
+python -m venv agents
 
 # Windows (PowerShell)
 .\venv\Scripts\Activate.ps1
@@ -140,7 +140,7 @@ streamlit run frontend.py
 
 - 🔌 **FastMCP (Model Context Protocol)** — Official MCP server running over `stdio` for standardized, decoupled tool discovery and execution.
 
-- 🎯 **Two-Stage RAG Pipeline** — Qdrant vector retrieval (Bi-Encoder Recall@10) + FlashRank Cross-Encoder reranking (Precision@3).
+- 🎯 **Two-Stage RAG Pipeline** — Qdrant vector retrieval + FlashRank Cross-Encoder reranking.
 
 - 🐘 **PostgreSQL Checkpointing** — Full state persistence, session continuity, and time-travel debugging via native PostgreSQL on port 5432 with `psycopg_pool` (with automatic graceful fallback to `MemorySaver`).
 
